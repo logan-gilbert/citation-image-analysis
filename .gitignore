@@ -1,0 +1,13 @@
+# OS / editor
+.DS_Store
+*.swp
+
+# Local pipeline run artifacts (if anyone runs the pipeline inside this repo)
+citation-run/
+run-*/
+dashboard.html
+dashboard.app.js
+dashboard.data.js
+dashboard-data.json
+output.json
+input.json

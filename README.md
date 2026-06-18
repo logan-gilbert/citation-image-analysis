@@ -41,7 +41,7 @@ This is a standalone [SLICC](https://github.com/cursor/slicc) skill. Install it
 into a running SLICC instance with `upskill`, pointing at this repo:
 
 ```bash
-upskill <your-github-user>/citation-image-analysis
+upskill logan-gilbert/citation-image-analysis
 ```
 
 That clones the repo into `/workspace/skills/citation-image-analysis/` in the

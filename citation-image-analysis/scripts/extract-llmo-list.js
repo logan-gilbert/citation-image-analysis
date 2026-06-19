@@ -582,6 +582,13 @@
   if (cmd === 'markpage') {
     const btn = findPageButton();
     if (!btn) return { ok: false, mode: 'markpage', error: 'page-button-not-found' };
+    // The pagination control lives at the page bottom. SLICC's trusted click
+    // dispatches a CDP mouse event at the element's VIEWPORT coordinates, so if the
+    // control is below the fold the click lands off-screen and the listbox never
+    // opens. Pull it into view (centred) before marking so the click hits it.
+    try {
+      btn.scrollIntoView({ block: 'center', inline: 'nearest' });
+    } catch {}
     markName(btn, PAGE_TOKEN);
     let neutralized = 0;
     try {
@@ -620,6 +627,9 @@
     const hit = opts.find((o) => o.value === target);
     if (!hit)
       return { ok: false, mode: 'markoption', error: 'option-not-found', target, options: opts.map((o) => o.value) };
+    try {
+      hit.el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    } catch {}
     markName(hit.el, PAGE_TOKEN);
     let neutralized = 0;
     try {

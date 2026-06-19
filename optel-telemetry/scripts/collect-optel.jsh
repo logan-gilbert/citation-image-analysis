@@ -157,63 +157,70 @@ if (!tab) {
 }
 console.log(`Using OpTel tab ${tab.id} -> ${tab.url}`);
 
-// --- ensure we're on the OpTel Explorer for a domain --------------------
-// Returns the tab id of the Explorer (may be a NEW tab opened by the
-// "OpTel Explorer" button).
-async function ensureExplorer(tabId, host) {
-  let s = await step(tabId, 'state');
-  if (s.screen === 'explorer') return tabId;
+// The generate-key FORM tab. OpTel keys are PER DOMAIN, so we return here to
+// regenerate a key for EACH host, opening a fresh Explorer tab per domain.
+const genTab = tab.id;
 
-  if (s.screen === 'generate') {
-    console.log(`  generating domain key for ${host}...`);
-    await step(tabId, 'filldomain', { domain: host });
-    await wait(400);
-    const g = await step(tabId, 'clickgenerate');
-    if (!g.ok) throw new Error(`could not click Generate: ${g.error}`);
-    // Poll until the "OpTel Explorer" button appears (key generation is async).
-    let appeared = false;
-    for (let i = 0; i < 20; i++) {
-      await wait(1000);
-      s = await step(tabId, 'state');
-      if (s.screen === 'explorer') return tabId; // some builds swap in place
-      if (s.has_explorer_button) {
-        appeared = true;
-        break;
-      }
-    }
-    if (!appeared) throw new Error('OpTel Explorer button never appeared after Generate (key generation failed?)');
-
-    // Click it; the Explorer usually opens in a NEW tab — detect by diffing
-    // tab-list before/after. Fall back to same-tab navigation.
-    const beforeIds = new Set(listTabIds((await exec('playwright-cli tab-list')).stdout));
-    const e = await step(tabId, 'clickexplorer');
-    if (!e.ok) throw new Error(`could not click OpTel Explorer: ${e.error}`);
-    let explorerTab = tabId;
-    for (let i = 0; i < 15; i++) {
-      await wait(1000);
-      const tl = await exec('playwright-cli tab-list');
-      const newId = listTabIds(tl.stdout).find((id) => !beforeIds.has(id));
-      if (newId) {
-        explorerTab = newId;
-        break;
-      }
-      // No new tab — maybe it navigated this tab to the Explorer.
-      const ss = await step(tabId, 'state');
-      if (ss.screen === 'explorer') {
-        explorerTab = tabId;
-        break;
-      }
-    }
-    // Confirm the Explorer is ready on whichever tab we landed on.
-    for (let i = 0; i < 15; i++) {
-      const ss = await step(explorerTab, 'state');
-      if (ss.screen === 'explorer') return explorerTab;
-      await wait(1000);
-    }
-    throw new Error('OpTel Explorer did not become ready');
+// --- (re)generate a domain key and open its OpTel Explorer ---------------
+// CRITICAL: never reuse a prior domain's Explorer — that would apply one
+// domain's metrics to every page. We always drive the generate-key FORM tab
+// (genTab): fill the host, click Generate, then click "OpTel Explorer", which
+// opens the Explorer in a NEW tab (detected by diffing tab-list). Returns that
+// new Explorer tab id.
+async function openExplorerFor(host) {
+  let s = await step(genTab, 'state');
+  // Operator started directly on an Explorer and there's only ONE domain to read
+  // — use it as-is (we can't regenerate without the form).
+  if (s.screen === 'explorer' && byOrigin.size === 1) return genTab;
+  if (s.screen !== 'generate') {
+    throw new Error(
+      `generate-key form not available (tab ${genTab} state=${s.screen}). ` +
+        'Open the OpTel domain-key page (aemcs-workspace.adobe.com) and re-run.',
+    );
   }
+  console.log(`  generating domain key for ${host}...`);
+  await step(genTab, 'filldomain', { domain: host });
+  await wait(500);
+  const g = await step(genTab, 'clickgenerate');
+  if (!g.ok) throw new Error(`could not click Generate: ${g.error}`);
+  // Let the key (re)generate. On the FIRST domain the Explorer button appears
+  // (absent→present); on LATER domains it's often already present from the prior
+  // key, so a fixed settle here avoids opening a STALE key before the new one is
+  // ready.
+  await wait(3000);
+  let appeared = false;
+  for (let i = 0; i < 20; i++) {
+    s = await step(genTab, 'state');
+    if (s.screen === 'explorer') return genTab; // some builds swap in place
+    if (s.has_explorer_button) {
+      appeared = true;
+      break;
+    }
+    await wait(1000);
+  }
+  if (!appeared) throw new Error('OpTel Explorer button never appeared after Generate (key generation failed?)');
 
-  throw new Error(`OpTel tab is on an unexpected screen (state=${s.screen}). Open the OpTel domain-key page or Explorer and re-run.`);
+  // Click it; the Explorer opens in a NEW tab — detect by diffing tab-list.
+  const beforeIds = new Set(listTabIds((await exec('playwright-cli tab-list')).stdout));
+  const e = await step(genTab, 'clickexplorer');
+  if (!e.ok) throw new Error(`could not click OpTel Explorer: ${e.error}`);
+  for (let i = 0; i < 15; i++) {
+    await wait(1000);
+    const newId = listTabIds((await exec('playwright-cli tab-list')).stdout).find((id) => !beforeIds.has(id));
+    if (newId) {
+      // Confirm the new Explorer is ready before reading.
+      for (let j = 0; j < 15; j++) {
+        const ss = await step(newId, 'state');
+        if (ss.screen === 'explorer') return newId;
+        await wait(1000);
+      }
+      return newId; // opened, even if "ready" wasn't confirmed in time
+    }
+    // No new tab — maybe it navigated genTab to the Explorer in place.
+    const ss = await step(genTab, 'state');
+    if (ss.screen === 'explorer') return genTab;
+  }
+  throw new Error('OpTel Explorer did not open');
 }
 
 // --- read one page's metrics -------------------------------------------
@@ -247,15 +254,22 @@ async function readPage(tabId, pathname) {
 // --- main loop ----------------------------------------------------------
 const telemetry = {};
 let okCount = 0;
-let explorerTab = tab.id;
+let prevExplorerTab = null; // the Explorer tab we opened for the previous domain
 for (const [origin, group] of byOrigin) {
+  let explorerTab;
   try {
-    explorerTab = await ensureExplorer(explorerTab, group.host);
+    explorerTab = await openExplorerFor(group.host);
   } catch (e) {
     console.error(`collect-optel: ${origin}: ${e.message}`);
     console.error('  Skipping this domain. (Check the OpTel tab state and retry.)');
     continue;
   }
+  // Close the PREVIOUS domain's Explorer tab (we opened it) so we don't pile up
+  // one tab per domain; never close the generate-key form tab.
+  if (prevExplorerTab && prevExplorerTab !== explorerTab && prevExplorerTab !== genTab) {
+    await exec(`playwright-cli tab-close --tab=${prevExplorerTab}`);
+  }
+  prevExplorerTab = explorerTab;
   console.log(`Reading ${group.pages.length} page(s) for ${origin} on Explorer tab ${explorerTab}...`);
   for (const p of group.pages) {
     const m = await readPage(explorerTab, p.pathname);
@@ -287,6 +301,11 @@ for (const [origin, group] of byOrigin) {
       console.warn(`  ✗ ${p.pathname}  no metrics (filter matched nothing / still loading)`);
     }
   }
+}
+
+// Close the last Explorer tab we opened.
+if (prevExplorerTab && prevExplorerTab !== genTab) {
+  await exec(`playwright-cli tab-close --tab=${prevExplorerTab}`);
 }
 
 await fs.writeFile(OUT, JSON.stringify(telemetry, null, 2));

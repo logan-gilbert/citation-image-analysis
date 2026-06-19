@@ -30,30 +30,39 @@ position — compared to pages that earn few or no citations?
 | `scripts/measure-cwv.js`        | In-page LAB CWV reader (LCP/CLS + TBT proxy) for Stage 02 `--lab-cwv`. |
 | `scripts/score-and-enrich.jsh`  | Deterministic scoring/classification/tiering command.                 |
 | `scripts/render-dashboard.jsh`  | Deterministic, zero-dependency dashboard generator.                   |
+| `scripts/enrich-telemetry.jsh`  | Joins OpTel telemetry (from `optel-telemetry`) onto a run by page URL. |
 | `fixtures/sample-output.json`   | Sample stage-02 output for offline testing of stages 03→04.           |
 
 `citation-pipeline`, `score-and-enrich`, and `render-dashboard` are
 auto-discovered as shell commands by basename — call them from any directory.
 
+This repo also ships a companion skill, [`optel-telemetry/`](optel-telemetry/),
+which collects per-page Core Web Vitals + page views from Adobe's OpTel tool. The
+pipeline's `--telemetry` flag (and the `enrich-telemetry` command) use it to add
+page-performance context to a run. It's optional — the core pipeline works
+without it. See its [README](optel-telemetry/README.md).
+
 ## Install
 
-This is a standalone [SLICC](https://github.com/cursor/slicc) skill. The skill
-lives in the [`citation-image-analysis/`](citation-image-analysis/) folder of
-this repo (the folder name becomes the installed skill name). Install it into a
-running SLICC instance with `upskill`, pointing at this repo:
+This repo holds two [SLICC](https://github.com/cursor/slicc) skills:
+[`citation-image-analysis/`](citation-image-analysis/) (the pipeline) and
+[`optel-telemetry/`](optel-telemetry/) (the optional OpTel connector). Each
+folder name becomes the installed skill name. Install them into a running SLICC
+instance with `upskill`, pointing at this repo:
 
 ```bash
-upskill logan-gilbert/citation-image-analysis          # list the skill(s) in the repo
-upskill logan-gilbert/citation-image-analysis --all    # install it
+upskill logan-gilbert/citation-image-analysis          # list the skills in the repo
+upskill logan-gilbert/citation-image-analysis --all    # install both
 ```
 
-That installs the skill into `/workspace/skills/citation-image-analysis/` in the
-instance's VFS. Verify with `skill list` (look for `citation-image-analysis`)
-and `skill read citation-image-analysis`.
+That installs them into `/workspace/skills/citation-image-analysis/` and
+`/workspace/skills/optel-telemetry/` in the instance's VFS. Verify with
+`skill list` and `skill read citation-image-analysis`. (`optel-telemetry` is only
+needed for the `--telemetry` flag; the core pipeline works without it.)
 
-You can also copy the `citation-image-analysis/` folder into `/workspace/skills/`
-directly in a running instance, or vendor it into a SLICC fork under
-`packages/vfs-root/workspace/skills/` so it bundles into every build.
+You can also copy either folder into `/workspace/skills/` directly in a running
+instance, or vendor them into a SLICC fork under
+`packages/vfs-root/workspace/skills/` so they bundle into every build.
 
 ### Requirements
 
@@ -76,6 +85,7 @@ yourself with one command — it creates its own run directory
 citation-pipeline 20 --by=prompts --fresh   # top 20 by Prompts Cited In, clean run
 citation-pipeline 20 --scoring=original      # score with the original Phase 1 rubric
 citation-pipeline 20 --lab-cwv               # + synthetic (lab) Core Web Vitals
+citation-pipeline 20 --telemetry             # + OpTel field CWV + page views (needs optel-telemetry)
 ```
 
 `--scoring` picks the Stage 03 metadata rubric: `google` (default, aligned to
@@ -88,6 +98,13 @@ visit and shows them in the dashboard — display-only: a synthetic single-load
 LCP + CLS, plus **TBT as a lab proxy for INP**. Readings are clearly marked
 **lab (synthetic)** (dashed pills, INP\*). CWV are page-level confounders to
 weigh against image quality.
+
+`--telemetry` (optional) additionally pulls per-page CWV + **page views** from
+the **OpTel** tool via the [`optel-telemetry`](optel-telemetry/) skill and shows
+them in the dashboard (display-only). It's non-fatal — if no OpTel tab is open
+the run still completes — and the dashboard prefers OpTel **field** data per page,
+falling back to lab CWV where OpTel has none. Page views are descriptive only
+(downstream of citations ⇒ collider), never a quality control.
 
 To drive just the deterministic back half:
 

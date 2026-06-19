@@ -72,10 +72,13 @@ function clientMain() {
   const scoreClass = (n) => (n == null ? '' : n <= 40 ? 'red' : n <= 70 ? 'amber' : 'green');
 
   // --- Core Web Vitals (display-only) ---------------------------------------
-  // CWV come from LAB data measured during the Stage 02 visit (--lab-cwv): a
-  // synthetic single-load measurement of LCP + CLS, with TBT as a lab proxy for
-  // INP (true INP needs real users). Readings are clearly marked as synthetic.
-  // CWV are page-level confounders for the image-quality⇄citations question.
+  // Two possible sources per page, resolved by pageCwv() below:
+  //   - OpTel field/RUM data (merged by enrich-telemetry on a --telemetry run), or
+  //   - LAB data measured during Stage 02 (--lab-cwv), used only to fill gaps for
+  //     pages OpTel doesn't cover. Lab is synthetic single-load data and is
+  //     clearly marked; its "INP" is a TBT proxy (true INP needs real users).
+  // CWV are page-level confounders for the image-quality⇄citations question;
+  // page views (OpTel only) are downstream of citations (collider) — context only.
   const cwvClass = (rating) =>
     rating === 'good' ? 'green' : rating === 'needs-improvement' ? 'amber' : rating === 'poor' ? 'red' : '';
   // Google thresholds (also used for the lab readings).
@@ -85,11 +88,36 @@ function clientMain() {
   const rateTbt = (ms) => (ms == null ? null : ms <= 200 ? 'good' : ms <= 600 ? 'needs-improvement' : 'poor');
   const fmtSec = (s) => (s == null ? null : (s < 10 ? s.toFixed(1) : Math.round(s)) + ' s');
   const fmtMs = (ms) => (ms == null ? null : Math.round(ms) + ' ms');
+  const fmtViews = (n, raw) => {
+    if (raw) return String(raw);
+    if (n == null) return '—';
+    if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + 'k';
+    return String(n);
+  };
 
-  // Resolve a single page's lab CWV into a normalized object. All readings are
-  // synthetic single-load measurements; INP is a TBT proxy (inp_proxy: true).
+  // Resolve a single page's CWV. CWV source and page views are decided
+  // SEPARATELY: OpTel often has page views for a page but NO CWV (placeholder
+  // "- s"/"nan" tiles → null). In that case OpTel must NOT win the CWV slot —
+  // we fall back to lab CWV — yet we still show the OpTel page-views number.
+  // OpTel CWV wins per page only when it has a real value (never mix field+lab
+  // within one page). Returns a normalized, source-agnostic object.
   const pageCwv = (p) => {
+    const optelSource = p.telemetry_matched === true || p.cwv_source === 'optel';
+    const optelHasCwv = optelSource && (p.cwv_lcp_s != null || p.cwv_cls != null || p.cwv_inp_s != null);
     const labHasCwv = p.lab_cwv_measured === true && (p.lab_lcp_s != null || p.lab_cls != null || p.lab_tbt_ms != null);
+    // Page views come from OpTel only, independent of which source supplies CWV.
+    const page_views = p.page_views ?? null;
+    const page_views_raw = p.page_views_raw ?? null;
+    if (optelHasCwv) {
+      return {
+        source: 'optel',
+        lcp_s: p.cwv_lcp_s ?? null, lcp_rating: p.cwv_lcp_rating ?? null, lcp_raw: p.cwv_lcp_raw ?? fmtSec(p.cwv_lcp_s),
+        cls: p.cwv_cls ?? null, cls_rating: p.cwv_cls_rating ?? null, cls_raw: p.cwv_cls_raw ?? (p.cwv_cls == null ? null : String(p.cwv_cls)),
+        inp_s: p.cwv_inp_s ?? null, inp_rating: p.cwv_inp_rating ?? null, inp_raw: p.cwv_inp_raw ?? fmtSec(p.cwv_inp_s), inp_proxy: false,
+        page_views, page_views_raw,
+      };
+    }
     if (labHasCwv) {
       const tbt = p.lab_tbt_ms ?? null;
       return {
@@ -97,26 +125,38 @@ function clientMain() {
         lcp_s: p.lab_lcp_s ?? null, lcp_rating: rateLcp(p.lab_lcp_s), lcp_raw: fmtSec(p.lab_lcp_s),
         cls: p.lab_cls ?? null, cls_rating: rateCls(p.lab_cls), cls_raw: p.lab_cls == null ? null : p.lab_cls.toFixed(3),
         inp_s: tbt == null ? null : tbt / 1000, inp_rating: rateTbt(tbt), inp_raw: fmtMs(tbt), inp_proxy: true,
+        page_views, page_views_raw,
       };
     }
-    return { source: null };
+    // No CWV from either source — but we may still have OpTel page views to show.
+    return { source: null, page_views, page_views_raw };
   };
   const HAS_CWV = DATA.some((r) => pageCwv(r).source);
+  const HAS_LAB = DATA.some((r) => pageCwv(r).source === 'lab');
+  const HAS_VIEWS = DATA.some((r) => { const c = pageCwv(r); return c.page_views != null || c.page_views_raw; });
 
-  // A pill for a single CWV metric. All readings are synthetic, so pills carry a
-  // dashed outline; an optional proxy marker flags the TBT-as-INP reading.
-  const cwvPill = (raw, rating, proxy) => {
+  // A pill for a single CWV metric; lab pills get a subtle dashed outline and an
+  // optional proxy marker so field vs lab is always visible at a glance.
+  const cwvPill = (raw, rating, source, proxy) => {
     if (raw == null || raw === '') return '<span class="pill">—</span>';
-    const cls = `pill ${cwvClass(rating)} lab`;
+    const cls = `pill ${cwvClass(rating)}${source === 'lab' ? ' lab' : ''}`;
     return `<span class="${cls}">${esc(raw)}${proxy ? '<span class="proxy-star">*</span>' : ''}</span>`;
   };
+  const srcTag = (source) =>
+    source === 'optel'
+      ? '<span class="src-tag src-optel">OpTel</span>'
+      : source === 'lab'
+        ? '<span class="src-tag src-lab">Lab</span>'
+        : '<span class="dim">—</span>';
 
-  // Google's CWV "good" thresholds + the lab/proxy caveats.
+  // Google's CWV "good" thresholds + the lab/field + collider caveats.
   const CWV_LEGEND =
     'CWV green/amber/red use Google thresholds (LCP ≤ 2.5s, CLS ≤ 0.1, INP ≤ 200ms). ' +
-    'They are <b>lab (synthetic, single-load)</b> measurements (dashed pills) taken during the page visit; ' +
-    'INP is a <b>TBT proxy</b> (marked <b>*</b>) since true INP needs real users. ' +
-    'These are page-level confounders to watch alongside image quality.';
+    'These are page-level confounders to watch alongside image quality. ' +
+    (HAS_LAB
+      ? 'Rows tagged <span class="src-tag src-lab">Lab</span> are <b>synthetic</b> single-load measurements (dashed pills) used where OpTel has no field data; their INP is a <b>TBT proxy</b> (marked <b>*</b>) since true INP needs real users. '
+      : '') +
+    '<b>Page views are descriptive only</b> — downstream of citations (collider risk), not a quality signal.';
 
   // --- scoring transparency -------------------------------------------------
   // The score breakdown is the single source of truth emitted by Stage 03 on
@@ -292,7 +332,21 @@ function clientMain() {
         page_title: r.page_title || '',
         page_has_preferred_image: r.page_has_preferred_image === true,
         image_count_total: r.image_count_total ?? 0,
-        // Page-level lab CWV (same for every row of a page), from --lab-cwv.
+        // Page-level CWV (same for every row of a page). OpTel field data...
+        telemetry_matched: r.telemetry_matched === true,
+        cwv_source: r.cwv_source ?? null,
+        cwv_lcp_s: r.cwv_lcp_s ?? null,
+        cwv_lcp_rating: r.cwv_lcp_rating ?? null,
+        cwv_lcp_raw: r.cwv_lcp_raw ?? null,
+        cwv_cls: r.cwv_cls ?? null,
+        cwv_cls_rating: r.cwv_cls_rating ?? null,
+        cwv_cls_raw: r.cwv_cls_raw ?? null,
+        cwv_inp_s: r.cwv_inp_s ?? null,
+        cwv_inp_rating: r.cwv_inp_rating ?? null,
+        cwv_inp_raw: r.cwv_inp_raw ?? null,
+        page_views: r.page_views ?? null,
+        page_views_raw: r.page_views_raw ?? null,
+        // ...and lab fallback (from a --lab-cwv Stage 02 run).
         lab_cwv_measured: r.lab_cwv_measured === true,
         lab_lcp_s: r.lab_lcp_s ?? null,
         lab_cls: r.lab_cls ?? null,
@@ -457,12 +511,17 @@ function clientMain() {
     }
     cols.push({ key: 'imgs', label: 'Images', val: (p) => p.qualifying_images });
     if (HAS_CWV) {
-      // Lab Core Web Vitals (sortable by the numeric value; colored by rating).
+      // Core Web Vitals (sortable by the numeric value; colored by rating).
       // Lower is better for all three, so an ascending sort surfaces the worst.
-      // INP* is a TBT proxy (lab readings only).
-      cols.push({ key: 'lcp', label: 'LCP', val: (p) => { const v = pageCwv(p).lcp_s; return v == null ? Infinity : v; }, cell: (p) => { const c = pageCwv(p); return cwvPill(c.lcp_raw, c.lcp_rating, false); } });
-      cols.push({ key: 'cls', label: 'CLS', val: (p) => { const v = pageCwv(p).cls; return v == null ? Infinity : v; }, cell: (p) => { const c = pageCwv(p); return cwvPill(c.cls_raw, c.cls_rating, false); } });
-      cols.push({ key: 'inp', label: 'INP', val: (p) => { const v = pageCwv(p).inp_s; return v == null ? Infinity : v; }, cell: (p) => { const c = pageCwv(p); return cwvPill(c.inp_raw, c.inp_rating, c.inp_proxy); } });
+      // INP* on lab rows is a TBT proxy. A source column flags field vs lab.
+      cols.push({ key: 'cwvsrc', label: 'CWV src', val: (p) => pageCwv(p).source || 'zzz', cell: (p) => srcTag(pageCwv(p).source) });
+      cols.push({ key: 'lcp', label: 'LCP', val: (p) => { const v = pageCwv(p).lcp_s; return v == null ? Infinity : v; }, cell: (p) => { const c = pageCwv(p); return cwvPill(c.lcp_raw, c.lcp_rating, c.source, false); } });
+      cols.push({ key: 'cls', label: 'CLS', val: (p) => { const v = pageCwv(p).cls; return v == null ? Infinity : v; }, cell: (p) => { const c = pageCwv(p); return cwvPill(c.cls_raw, c.cls_rating, c.source, false); } });
+      cols.push({ key: 'inp', label: 'INP', val: (p) => { const v = pageCwv(p).inp_s; return v == null ? Infinity : v; }, cell: (p) => { const c = pageCwv(p); return cwvPill(c.inp_raw, c.inp_rating, c.source, c.inp_proxy); } });
+    }
+    // Page views (OpTel only) gate separately — a page can have views but no CWV.
+    if (HAS_VIEWS) {
+      cols.push({ key: 'views', label: 'Page views', val: (p) => { const v = pageCwv(p).page_views; return v == null ? -1 : v; }, cell: (p) => { const c = pageCwv(p); return `<span class="dim">${esc(fmtViews(c.page_views, c.page_views_raw))}</span>`; } });
     }
     cols.push({
       key: 'score',
@@ -483,7 +542,7 @@ function clientMain() {
     hint.className = 'hint';
     hint.innerHTML =
       `Scoring rubric: <b>${esc(MODE_LABEL)}</b> (0–${SCORE_MAX}). Click any row to inspect that page’s images. Hover the <b>Avg metadata</b> score for a per-condition average, or click the score to expand every image’s breakdown.` +
-      (HAS_CWV ? ` ${CWV_LEGEND}` : '');
+      (HAS_CWV || HAS_VIEWS ? ` ${CWV_LEGEND}` : '');
     c.prepend(hint);
     return c;
   }
@@ -526,15 +585,22 @@ function clientMain() {
       `<p class="hint">${esc(p.page_url)} · ${p.metric_value} ${METRIC.noun} · ${tierBadge(p.citation_tier)}</p>` +
       (() => {
         const c = pageCwv(p);
-        if (!c.source) return '';
-        const cwv =
-          `<span class="cwv-badge src src-lab">Lab (synthetic)</span>` +
-          `<span class="cwv-badge ${cwvClass(c.lcp_rating)}">LCP <b>${esc(c.lcp_raw || '—')}</b></span>` +
-          `<span class="cwv-badge ${cwvClass(c.cls_rating)}">CLS <b>${esc(c.cls_raw || '—')}</b></span>` +
-          `<span class="cwv-badge ${cwvClass(c.inp_rating)}">INP${c.inp_proxy ? '*' : ''} <b>${esc(c.inp_raw || '—')}</b></span>`;
+        const hasViews = c.page_views != null || c.page_views_raw;
+        if (!c.source && !hasViews) return '';
+        const views = hasViews
+          ? `<span class="cwv-badge views">Page views <b>${esc(fmtViews(c.page_views, c.page_views_raw))}</b></span>`
+          : '';
+        // CWV badges only when a source actually has CWV; views can stand alone.
+        const cwv = c.source
+          ? `<span class="cwv-badge src ${c.source === 'lab' ? 'src-lab' : 'src-optel'}">${c.source === 'lab' ? 'Lab (synthetic)' : 'OpTel (field)'}</span>` +
+            `<span class="cwv-badge ${cwvClass(c.lcp_rating)}">LCP <b>${esc(c.lcp_raw || '—')}</b></span>` +
+            `<span class="cwv-badge ${cwvClass(c.cls_rating)}">CLS <b>${esc(c.cls_raw || '—')}</b></span>` +
+            `<span class="cwv-badge ${cwvClass(c.inp_rating)}">INP${c.inp_proxy ? '*' : ''} <b>${esc(c.inp_raw || '—')}</b></span>`
+          : '<span class="cwv-badge">No CWV data (OpTel or lab)</span>';
         return (
           '<div class="cwv-row">' +
           cwv +
+          views +
           (c.inp_proxy ? '<span class="cwv-note">*INP is a TBT lab proxy</span>' : '') +
           '</div>'
         );
@@ -808,12 +874,18 @@ const html = `<!doctype html>
   .cwv-badge.green { background:#dcfce7; color:#166534; border-color:#bbf7d0; }
   .cwv-badge.amber { background:#fef3c7; color:#92400e; border-color:#fde68a; }
   .cwv-badge.red { background:#fee2e2; color:#991b1b; border-color:#fecaca; }
+  .cwv-badge.views { background:#eef2ff; color:#3730a3; border-color:#e0e7ff; }
   .cwv-badge.src { font-weight:600; }
+  .cwv-badge.src.src-optel { background:#e0f2fe; color:#075985; border-color:#bae6fd; }
   .cwv-badge.src.src-lab { background:#f5f3ff; color:#5b21b6; border-color:#ddd6fe; }
   .cwv-note { font-size:10px; color:var(--muted); align-self:center; }
   /* lab CWV pills: dashed outline so synthetic readings are obvious in tables */
   .pill.lab { border:1px dashed rgba(0,0,0,.35); }
   .proxy-star { font-weight:700; }
+  /* CWV source tag (Overview "CWV src" column) */
+  .src-tag { display:inline-block; padding:1px 7px; border-radius:9px; font-size:10px; font-weight:600; }
+  .src-tag.src-optel { background:#e0f2fe; color:#075985; }
+  .src-tag.src-lab { background:#f5f3ff; color:#5b21b6; border:1px dashed #c4b5fd; }
 </style>
 </head>
 <body>

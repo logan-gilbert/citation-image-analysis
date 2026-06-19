@@ -14,7 +14,7 @@
 // layout-shift / longtask via performance.getEntriesByType() — only via
 // PerformanceObserver (that was the "CLS/INP = 0, LCP blank" bug).
 //
-// This is LAB data (a single controlled load), not field/RUM telemetry:
+// This is LAB data (a single controlled load), not field/RUM like OpTel:
 //   - LCP: largest contentful paint observed (ms).
 //   - CLS: Σ layout-shift values with hadRecentInput == false (simple cumulative
 //     sum, not session-windowed — fine for a clearly-labelled proxy).

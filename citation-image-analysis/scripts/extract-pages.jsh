@@ -15,8 +15,9 @@
 //   --fresh    ignore any existing output and start clean (no resume/append)
 //   --lab-cwv  also capture LAB Core Web Vitals (LCP/CLS + TBT-as-INP proxy)
 //              during each page visit, attached as lab_cwv_* on every row. This
-//              is synthetic single-load data (not field/RUM telemetry); the
-//              dashboard marks these readings as "lab (synthetic)".
+//              is synthetic single-load data (not field/RUM like OpTel); the
+//              dashboard prefers OpTel field data and only falls back to lab to
+//              fill gaps (pages OpTel doesn't cover), marking them as "lab".
 //              NOTE: this foregrounds each tab (playwright-cli activate) so the
 //              page actually paints — Chrome never computes LCP/layout-shift for
 //              hidden/background tabs. Expect the active tab to flip per page.
@@ -255,8 +256,8 @@ for (let i = 0; i < entries.length; i++) {
     }
     const page = data.page || {};
     // Attach lab CWV (if captured) to the page object so it propagates onto
-    // every row spread below. These are raw numbers; the dashboard formats and
-    // rates them, marking each reading as a synthetic "lab" measurement.
+    // every row spread below. These are raw numbers; the dashboard formats,
+    // rates, and source-tags them (preferring OpTel field data when present).
     if (labCwv) {
       page.lab_cwv_measured = true;
       page.lab_lcp_s = labCwv.lcp_s;

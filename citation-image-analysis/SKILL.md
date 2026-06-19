@@ -61,6 +61,7 @@ citation-pipeline 10 --platform="ChatGPT (Free)"   # force the platform label
 citation-pipeline 10 --by=prompts          # rank by "Prompts Cited In" instead of "Times Cited"
 citation-pipeline 10 --scoring=original    # score with the original Phase 1 rubric
 citation-pipeline 10 --lab-cwv             # also capture synthetic (lab) Core Web Vitals
+citation-pipeline 10 --telemetry           # + OpTel field CWV + page views (needs optel-telemetry)
 citation-pipeline 10 --dir=/workspace/run-2   # write artifacts elsewhere
 ```
 
@@ -86,6 +87,17 @@ capture adds ~1.5s per page (a short settle so late LCP/shifts register).
 > calls `playwright-cli activate` to bring each page to the foreground while it
 > paints. Expect the active tab to flip from page to page during Stage 02; this
 > is required to get real lab LCP/CLS and is harmless to the data.
+
+`--telemetry` (optional) additionally pulls per-page **Core Web Vitals**
+(LCP/CLS/INP) and **page views** from the **OpTel** tool (via the companion
+`optel-telemetry` skill) and shows them in the dashboard (display-only). It runs
+between Stage 02 and Stage 03 and is **non-fatal**: if no logged-in OpTel tab is
+open, the core run still completes. The dashboard prefers OpTel **field** data
+per page and falls back to lab CWV (which `--telemetry` also captures) for pages
+OpTel doesn't cover, tagging each page `cwv_source` (`optel` | `lab`). Page views
+are **descriptive only** (downstream of citations ⇒ collider — never a control).
+Requires an OpTel tab (`aemcs-workspace.adobe.com`) open; see the
+`optel-telemetry` skill for details.
 
 This works **today in the SLICC CLI float** — no Chrome extension required.
 Requires the operator logged into LLM Optimizer on "Your Cited URLs".
@@ -130,6 +142,23 @@ mkdir -p /workspace/citation-run && cd /workspace/citation-run
    ```
 
 Log total runtime and record counts at each stage.
+
+### Optional — page performance telemetry (OpTel)
+
+To add Core Web Vitals + page views to a run that already has `output.json`
+(rather than re-running with `--telemetry`), use the `optel-telemetry` skill to
+collect, then `enrich-telemetry` to merge + refresh the dashboard:
+
+```bash
+collect-optel /workspace/citation-run/output.json /workspace/citation-run/telemetry.json
+enrich-telemetry /workspace/citation-run          # merges + re-renders the dashboard
+```
+
+`enrich-telemetry` attaches page-level `cwv_lcp_s`, `cwv_lcp_rating`, `cwv_cls`,
+`cwv_cls_rating`, `cwv_inp_s`, `cwv_inp_rating`, `page_views`, and
+`telemetry_matched` to every row by normalized `page_url`. These fields flow
+through `score-and-enrich` untouched (no scoring change) and the dashboard adds
+LCP/CLS/INP + Page-views columns and Page-detail badges when present.
 
 ## Stage reference docs
 

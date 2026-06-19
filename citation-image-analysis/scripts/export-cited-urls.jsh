@@ -1,9 +1,15 @@
 // export-cited-urls — Stage 01 orchestrator of the citation-image-analysis pipeline.
 //
 // Drives Adobe LLM Optimizer hands-off: finds the operator's already-open,
-// logged-in URL Inspector tab, SCROLL-COLLECTS the cited-URLs grid, and writes
-// the top N by the chosen metric (Times Cited by default, or Prompts Cited In
-// with --by=prompts) to a clean `input.json` for Stage 02.
+// logged-in URL Inspector tab, bumps the grid's "Items per page" so enough rows
+// are loadable, SCROLL-COLLECTS the cited-URLs grid, and writes the top N by the
+// chosen metric (Times Cited by default, or Prompts Cited In with --by=prompts)
+// to a clean `input.json` for Stage 02.
+//
+// Items per page: the operator no longer has to scroll down and pick a bigger
+// page size — before collecting, the orchestrator opens the "Items per page"
+// popup and selects the smallest option >= topN (e.g. 50). It skips when the
+// current size already covers topN, and is non-fatal if the control is absent.
 //
 // Sorting uses a TRUSTED CLICK on the header. Synthetic in-page events don't fire
 // React Aria, and a trusted Enter lands on the nested info "i" button (opening a
@@ -128,6 +134,136 @@ async function scanAt(tabId, offset, retries = 2) {
   throw lastErr;
 }
 
+// Find a snapshot `[ref=...]` whose accessible name is exactly `token`, preferring
+// lines that also match `roleRe` (e.g. /button/i, /option/i) before any role.
+function findRefByName(snapshotText, token, roleRe) {
+  const quoted = `"${token}"`;
+  const lines = (snapshotText || '').split('\n');
+  for (const line of lines) {
+    if (roleRe && !roleRe.test(line)) continue;
+    if (!line.includes(quoted)) continue;
+    const m = /\[ref=([^\]]+)\]/.exec(line);
+    if (m) return m[1];
+  }
+  for (const line of lines) {
+    if (!line.includes(quoted)) continue;
+    const m = /\[ref=([^\]]+)\]/.exec(line);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// Restore the items-per-page button's accessible name + pointer-events.
+async function unmarkPage(tabId) {
+  await exec(`playwright-cli eval --tab=${tabId} ${JSON.stringify(`window.__LLMO_CMD__='unmarkpage';'ok'`)}`);
+  try {
+    await exec(`playwright-cli eval-file --tab=${tabId} ${EXTRACTOR}`);
+  } catch {}
+}
+
+// Make sure the grid's "Items per page" control is large enough to hold the
+// requested top N: open the popup and select the smallest option >= TOP_N (or the
+// largest available if none is big enough). Skips when the current size already
+// covers TOP_N or when there's no pagination control. Best-effort and NON-FATAL —
+// any failure just leaves the size unchanged and collection proceeds with whatever
+// rows the grid loads. Uses the same trusted-click (mark → snapshot → click)
+// pattern as the sort header, since React Aria ignores synthetic events.
+async function ensurePageSize(tabId) {
+  let ps;
+  try {
+    ps = await runStep(tabId, 'pagesize');
+  } catch {
+    return { changed: false };
+  }
+  if (!ps.found) return { changed: false }; // no pagination control on this view
+  const current = ps.current;
+  if (current != null && current >= TOP_N) {
+    console.log(`Items per page already ${current} (≥ ${TOP_N}) — leaving as is.`);
+    return { changed: false };
+  }
+
+  // 1) Open the listbox: mark the button, snapshot, trusted-click it.
+  let mark;
+  try {
+    mark = await runStep(tabId, 'markpage');
+  } catch (e) {
+    console.warn(`items-per-page: markpage failed: ${e.message} — skipping.`);
+    return { changed: false };
+  }
+  if (!mark.ok) {
+    console.warn(`items-per-page: ${mark.error || 'could not mark the control'} — skipping.`);
+    return { changed: false };
+  }
+  let snap = await exec(`playwright-cli snapshot --tab=${tabId} --no-iframes`);
+  let ref = snap.exitCode === 0 ? findRefByName(snap.stdout, mark.token, /button/i) : null;
+  if (!ref) {
+    await unmarkPage(tabId);
+    console.warn('items-per-page: control not found in snapshot — skipping.');
+    return { changed: false };
+  }
+  const opened = await exec(`playwright-cli click --tab=${tabId} ${ref}`);
+  await unmarkPage(tabId); // listbox is open now; restore the button
+  if (opened.exitCode !== 0) {
+    console.warn(`items-per-page: open click failed: ${opened.stderr || opened.stdout} — skipping.`);
+    return { changed: false };
+  }
+  await wait(600); // let the listbox render
+
+  // 2) Read the available options and choose the smallest that covers TOP_N.
+  let opts = [];
+  try {
+    const r = await runStep(tabId, 'pageoptions');
+    opts = Array.isArray(r.options) ? r.options : [];
+  } catch {}
+  if (!opts.length) {
+    await exec(`playwright-cli press --tab=${tabId} Escape`);
+    console.warn('items-per-page: no options in the open listbox — skipping.');
+    return { changed: false };
+  }
+  const bigEnough = opts.filter((v) => v >= TOP_N);
+  const target = bigEnough.length ? Math.min(...bigEnough) : Math.max(...opts);
+  if (target === current) {
+    await exec(`playwright-cli press --tab=${tabId} Escape`);
+    return { changed: false };
+  }
+
+  // 3) Select the target option: mark it, snapshot, trusted-click it.
+  await exec(`playwright-cli eval --tab=${tabId} ${JSON.stringify(`window.__LLMO_PAGE_TARGET__=${target};'ok'`)}`);
+  let om;
+  try {
+    om = await runStep(tabId, 'markoption');
+  } catch (e) {
+    await exec(`playwright-cli press --tab=${tabId} Escape`);
+    console.warn(`items-per-page: markoption failed: ${e.message} — skipping.`);
+    return { changed: false };
+  }
+  if (!om.ok) {
+    await exec(`playwright-cli press --tab=${tabId} Escape`);
+    console.warn(`items-per-page: option ${target} not found — skipping.`);
+    return { changed: false };
+  }
+  snap = await exec(`playwright-cli snapshot --tab=${tabId} --no-iframes`);
+  ref = snap.exitCode === 0 ? findRefByName(snap.stdout, om.token, /option/i) : null;
+  if (!ref) {
+    await exec(`playwright-cli press --tab=${tabId} Escape`);
+    console.warn('items-per-page: option not found in snapshot — skipping.');
+    return { changed: false };
+  }
+  const chose = await exec(`playwright-cli click --tab=${tabId} ${ref}`);
+  if (chose.exitCode !== 0) {
+    await exec(`playwright-cli press --tab=${tabId} Escape`);
+    console.warn(`items-per-page: option click failed: ${chose.stderr || chose.stdout} — skipping.`);
+    return { changed: false };
+  }
+  await wait(2000); // grid re-fetches with the new page size
+  let confirmed = null;
+  try {
+    confirmed = (await runStep(tabId, 'pagesize')).current;
+  } catch {}
+  console.log(`Items per page set to ${confirmed ?? target} (was ${current ?? '?'}) to cover top ${TOP_N}.`);
+  return { changed: true };
+}
+
 console.log(`Stage 01: exporting top ${TOP_N} cited URLs from LLM Optimizer (by ${SORT.label})...`);
 
 const listed = await exec('playwright-cli tab-list');
@@ -164,6 +300,18 @@ if (platform) {
   console.log(`Platform filter: ${platform}${PLATFORM_OVERRIDE ? ' (override)' : ' (auto-detected)'}`);
 } else {
   console.warn('Platform filter not detected — pass --platform="ChatGPT (Free)" to set it on the report.');
+}
+
+// Step 1a: bump "Items per page" so the grid can load enough rows for the top N
+// (e.g. select 50 when the operator left it at 10). Non-fatal; if it changes, the
+// grid re-fetched, so refresh the metrics probe before sorting/collecting.
+const pageResult = await ensurePageSize(tab.id);
+if (pageResult.changed) {
+  try {
+    meta = await runStep(tab.id, 'metrics');
+  } catch {
+    /* keep the prior meta — collection still works off live scans */
+  }
 }
 
 // Non-strict: values are non-increasing (allows ties). Used to VERIFY an

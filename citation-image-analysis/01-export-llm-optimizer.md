@@ -20,6 +20,9 @@ keys off **stable ARIA attributes only** — never the build-hashed CSS classes.
   sorted descending by the chosen metric, the script takes a faster path — see
   below.) Whatever **Platform** filter is active (e.g. `ChatGPT (Free)`) is
   auto-detected and recorded on every row, since it scopes the whole dataset.
+- You also **don't** need to scroll down and bump the **"Items per page"** control:
+  before collecting, the script opens that popup and selects the smallest option
+  ≥ `topN` (e.g. 50), skipping when the current size already covers `topN`.
 
 ## One command
 
@@ -57,6 +60,10 @@ eval, and each scan **retries** on a transient CDP timeout, so no single
 | `marksort`     | Stamp a unique `aria-label` on the active sort header (by stable `data-key`) so the snapshot's name-based selector resolves to it; returns the token + header `outerHTML`. |
 | `unmarksort`   | Remove that marker, restoring the header's accessible name.                                                                                                                |
 | `scan`         | Set the scroll viewport's `scrollTop` and return the rows the virtualizer currently has.                                                                                   |
+| `pagesize`     | Read the **"Items per page"** control's current value (and whether it exists). No interaction.                                                                             |
+| `markpage` / `unmarkpage` | Stamp / remove a unique `aria-label` on the items-per-page button (and neutralize its children) so the snapshot resolves it for a trusted click that opens the listbox.    |
+| `pageoptions`  | Return the numeric option values in the open listbox (e.g. `[10, 20, 50]`).                                                                                                |
+| `markoption`   | Stamp a unique `aria-label` on the listbox option matching `__LLMO_PAGE_TARGET__` so the snapshot resolves it for a trusted click that selects it.                          |
 
 The orchestrator picks the ranking column from `--by` and tells the extractor via
 the `__LLMO_SORT_KEY__` global (`citations` or `promptsCited`).
@@ -92,14 +99,18 @@ Flow:
 1. `playwright-cli tab-list` → find the tab matching `llmo.now` / `url-inspector`.
 2. `metrics` → read the current sort, the **Platform** filter (override with
    `--platform=...`), and grid metrics.
-3. **Sort** (skipped if already descending): `marksort` → `playwright-cli snapshot`
+3. **Items per page** (skipped if it already covers `topN`, or absent): `pagesize`
+   → `markpage` → `snapshot` → trusted `click` to open the listbox → `pageoptions`
+   → pick the smallest option ≥ `topN` → `markoption` → `snapshot` → trusted
+   `click` to select it → wait for the grid to re-fetch, then re-probe `metrics`.
+4. **Sort** (skipped if already descending): `marksort` → `playwright-cli snapshot`
    → trusted `playwright-cli click` on the marked header → wait → `sortstate`;
    repeat up to 4 clicks until `aria-sort` is descending or the top values confirm
    it; then `unmarksort`.
-4. **Scroll-collect** (one `scan` eval per step, each retried on a transient CDP
+5. **Scroll-collect** (one `scan` eval per step, each retried on a transient CDP
    timeout): from the top, accumulate rows by `aria-rowindex` until it has the top
    N (fast path) or every row (robust path), or it reaches the bottom.
-5. **Rank** by the chosen metric and take the top N, then write the ranked URL
+6. **Rank** by the chosen metric and take the top N, then write the ranked URL
    array (each row stamped with `platform` and `selected_by`) to `outputPath`.
 
 > If the trusted click succeeds, `--by=prompts` is just as fast as Times Cited. The

@@ -12,9 +12,13 @@
 // before each call:
 //
 //   window.__LLMO_CMD__        'metrics' (default) | 'sortstate' | 'marksort' | 'scan'
+//                              | 'pagesize' | 'markpage' | 'unmarkpage'
+//                              | 'pageoptions' | 'markoption' (items-per-page)
 //   window.__LLMO_SCROLL_TO__  number — for 'scan', the scroll viewport's scrollTop
 //   window.__LLMO_SORT_KEY__   'citations' (default, Times Cited) | 'promptsCited'
 //                              (Prompts Cited In) — the column to sort/rank by
+//   window.__LLMO_PAGE_TARGET__ number — for 'markoption', the items-per-page
+//                              option value to select (e.g. 50)
 //
 //   - 'metrics': locate the grid; return current aria-sort, detected platform,
 //     grid metrics, column map, and the currently-visible rows. No interaction.
@@ -27,6 +31,11 @@
 //     the current aria-sort/top values, and the header's outerHTML (for debugging).
 //   - 'scan': set the viewport scrollTop, let the virtualizer mount, return the
 //     rows currently in the DOM (keyed by aria-rowindex via `_rowindex`).
+//   - 'pagesize'/'markpage'/'unmarkpage'/'pageoptions'/'markoption': drive the
+//     "Items per page" React Aria popup button the same trusted-click way as the
+//     sort header — read the current size, mark the button to open the listbox,
+//     read the available option values, then mark the target option to select it
+//     (so the grid loads enough rows to collect the requested top N).
 //
 // Selectors key off STABLE attributes only — ARIA roles, data-key, aria-colindex,
 // aria-sort, aria-rowindex. The grid's CSS classes are build-hashed; never use
@@ -443,6 +452,101 @@
       } catch {}
     }
     return { ok: true, mode: 'unmarksort', sort_key: sortKey() };
+  }
+
+  // --- items-per-page pagination control ---------------------------------
+  // The pagination footer has a React Aria popup button (aria-haspopup="listbox",
+  // aria-label="Items per page") whose label shows the current size (e.g. "20").
+  // It caps how many rows the grid will ever mount, so collecting more than the
+  // current size requires bumping it. Driven with the SAME trusted-click pattern
+  // as the sort header: mark → snapshot → trusted click. Keyed off the stable
+  // aria-label / role=option, never hashed classes.
+  function findPageButton() {
+    const cands = document.querySelectorAll('[aria-haspopup="listbox"],button,[role="button"]');
+    for (const el of cands) {
+      if (/^items?\s*per\s*page$/i.test((el.getAttribute('aria-label') || '').trim())) return el;
+    }
+    for (const el of document.querySelectorAll('[aria-label]')) {
+      if (/items?\s*per\s*page/i.test(el.getAttribute('aria-label') || '')) return el;
+    }
+    return null;
+  }
+  function pageButtonValue(btn) {
+    if (!btn) return null;
+    const lab = btn.querySelector('[data-slot="label"]') || btn.querySelector('[data-rsp-slot="text"]');
+    const m = String((lab ? lab.textContent : btn.textContent) || '').match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  }
+  // Numeric option values currently in the open listbox (role=option).
+  function openPageOptions() {
+    const out = [];
+    for (const o of document.querySelectorAll('[role="option"]')) {
+      const m = (o.textContent || '').match(/\d+/);
+      if (m) out.push({ value: parseInt(m[0], 10), el: o });
+    }
+    return out;
+  }
+  const PAGE_TOKEN = 'LLMOPAGETARGET';
+
+  if (cmd === 'pagesize') {
+    const btn = findPageButton();
+    return { ok: true, mode: 'pagesize', found: !!btn, current: pageButtonValue(btn) };
+  }
+  if (cmd === 'markpage') {
+    const btn = findPageButton();
+    if (!btn) return { ok: false, mode: 'markpage', error: 'page-button-not-found' };
+    try {
+      btn.setAttribute('aria-label', PAGE_TOKEN);
+    } catch {}
+    let neutralized = 0;
+    try {
+      for (const el of btn.querySelectorAll('*')) {
+        el.style.pointerEvents = 'none';
+        neutralized++;
+      }
+    } catch {}
+    let rect = null;
+    try {
+      const r = btn.getBoundingClientRect();
+      rect = { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+    } catch {}
+    return { ok: true, mode: 'markpage', token: PAGE_TOKEN, current: pageButtonValue(btn), neutralized, rect };
+  }
+  if (cmd === 'unmarkpage') {
+    const btn = document.querySelector(`[aria-label="${PAGE_TOKEN}"]`) || findPageButton();
+    if (btn) {
+      if (btn.getAttribute('aria-label') === PAGE_TOKEN) {
+        try {
+          btn.removeAttribute('aria-label');
+        } catch {}
+      }
+      try {
+        for (const el of btn.querySelectorAll('*')) el.style.pointerEvents = '';
+      } catch {}
+    }
+    return { ok: true, mode: 'unmarkpage' };
+  }
+  if (cmd === 'pageoptions') {
+    const vals = openPageOptions().map((o) => o.value).filter((v) => v != null);
+    return { ok: true, mode: 'pageoptions', options: [...new Set(vals)].sort((a, b) => a - b) };
+  }
+  if (cmd === 'markoption') {
+    const target = parseInt(window.__LLMO_PAGE_TARGET__, 10);
+    const opts = openPageOptions();
+    const hit = opts.find((o) => o.value === target);
+    if (!hit)
+      return { ok: false, mode: 'markoption', error: 'option-not-found', target, options: opts.map((o) => o.value) };
+    try {
+      hit.el.setAttribute('aria-label', PAGE_TOKEN);
+    } catch {}
+    let neutralized = 0;
+    try {
+      for (const el of hit.el.querySelectorAll('*')) {
+        el.style.pointerEvents = 'none';
+        neutralized++;
+      }
+    } catch {}
+    return { ok: true, mode: 'markoption', token: PAGE_TOKEN, value: target, neutralized };
   }
 
   // default: 'metrics' — probe only, NO interaction, returns fast.

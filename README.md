@@ -37,19 +37,22 @@ auto-discovered as shell commands by basename — call them from any directory.
 
 ## Install
 
-This is a standalone [SLICC](https://github.com/cursor/slicc) skill. Install it
-into a running SLICC instance with `upskill`, pointing at this repo:
+This is a standalone [SLICC](https://github.com/cursor/slicc) skill. The skill
+lives in the [`citation-image-analysis/`](citation-image-analysis/) folder of
+this repo (the folder name becomes the installed skill name). Install it into a
+running SLICC instance with `upskill`, pointing at this repo:
 
 ```bash
-upskill logan-gilbert/citation-image-analysis
+upskill logan-gilbert/citation-image-analysis          # list the skill(s) in the repo
+upskill logan-gilbert/citation-image-analysis --all    # install it
 ```
 
-That clones the repo into `/workspace/skills/citation-image-analysis/` in the
+That installs the skill into `/workspace/skills/citation-image-analysis/` in the
 instance's VFS. Verify with `skill list` (look for `citation-image-analysis`)
 and `skill read citation-image-analysis`.
 
-You can also just copy this folder into `/workspace/skills/` directly in a
-running instance, or vendor it into a SLICC fork under
+You can also copy the `citation-image-analysis/` folder into `/workspace/skills/`
+directly in a running instance, or vendor it into a SLICC fork under
 `packages/vfs-root/workspace/skills/` so it bundles into every build.
 
 ### Requirements

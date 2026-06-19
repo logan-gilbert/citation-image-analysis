@@ -82,10 +82,11 @@ yourself with one command — it creates its own run directory
 (`/workspace/citation-run`), chains all four stages, and opens the dashboard:
 
 ```bash
-citation-pipeline 20 --by=prompts --fresh   # top 20 by Prompts Cited In, clean run
+citation-pipeline 20 --by=prompts           # top 20 by Prompts Cited In (each run is fresh)
 citation-pipeline 20 --scoring=original      # score with the original Phase 1 rubric
 citation-pipeline 20 --lab-cwv               # + synthetic (lab) Core Web Vitals
 citation-pipeline 20 --telemetry             # + OpTel field CWV + page views (needs optel-telemetry)
+citation-pipeline 20 --resume                # resume/append a previous run (each run is fresh by default)
 ```
 
 `--scoring` picks the Stage 03 metadata rubric: `google` (default, aligned to

@@ -72,7 +72,7 @@ Use `enrich-telemetry` (the `citation-image-analysis` skill) to merge a
 `--telemetry`, which calls both for you between Stage 02 and Stage 03:
 
 ```bash
-citation-pipeline 20 --scoring=google --telemetry --fresh
+citation-pipeline 20 --scoring=google --telemetry
 ```
 
 ## What gets measured (and how to read it)

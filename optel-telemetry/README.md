@@ -55,7 +55,7 @@ enrich-telemetry /workspace/citation-run
 Or in one shot via the pipeline flag:
 
 ```bash
-citation-pipeline 20 --scoring=google --telemetry --fresh
+citation-pipeline 20 --scoring=google --telemetry
 ```
 
 ## Reading the numbers

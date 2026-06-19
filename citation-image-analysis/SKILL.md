@@ -56,7 +56,7 @@ on the first failure. It creates its own run directory
 
 ```bash
 citation-pipeline 10                       # top 10, end to end
-citation-pipeline 25 --fresh               # start clean (don't resume/append)
+citation-pipeline 25 --resume              # resume/append a prior run (runs are fresh by default)
 citation-pipeline 10 --platform="ChatGPT (Free)"   # force the platform label
 citation-pipeline 10 --by=prompts          # rank by "Prompts Cited In" instead of "Times Cited"
 citation-pipeline 10 --scoring=original    # score with the original Phase 1 rubric

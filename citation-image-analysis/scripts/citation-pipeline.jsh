@@ -11,12 +11,14 @@
 // with `exec`, stopping on the first failure.
 //
 // Usage:
-//   citation-pipeline [topN] [--dir=/path] [--platform="ChatGPT (Free)"] [--by=prompts] [--scoring=google] [--telemetry] [--lab-cwv] [--fresh]
+//   citation-pipeline [topN] [--dir=/path] [--platform="ChatGPT (Free)"] [--by=prompts] [--scoring=google] [--telemetry] [--lab-cwv] [--resume]
 //   defaults: topN = 10, --by = citations, --scoring = google, --dir = /workspace/citation-run
 //
 //   --dir=/path             where to write artifacts (created if missing)
-//   --fresh                 start clean — re-extract all pages instead of
-//                           resuming/appending to a previous output.json
+//   --resume                resume/append to a previous run's output.json instead
+//                           of re-extracting. By default every run is FRESH
+//                           (re-extracts all pages). --fresh is still accepted
+//                           but is now a no-op (the default).
 //   --platform="..."        force the Platform label (else auto-detected)
 //   --by=citations|prompts  rank the top N by "Times Cited" (default) or
 //                           "Prompts Cited In"
@@ -46,12 +48,13 @@ let platformValue = '';
 let byValue = '';
 let dirValue = '';
 let scoringValue = '';
-let fresh = false;
+let fresh = true; // each pipeline run is FRESH by default (no --fresh needed)
 let telemetry = false;
 let labCwv = false;
 const pos = [];
 for (const a of raw) {
-  if (a === '--fresh') fresh = true;
+  if (a === '--fresh') fresh = true; // accepted for back-compat; now the default
+  else if (a === '--resume') fresh = false; // opt into resuming/appending a prior run
   else if (a === '--telemetry') telemetry = true;
   else if (a === '--lab-cwv') labCwv = true;
   else if (/^--platform=/.test(a)) platformValue = a.slice('--platform='.length).replace(/^["']|["']$/g, '');
@@ -109,7 +112,7 @@ async function optionalStage(label, cmd) {
   return true;
 }
 
-console.log(`Running full citation-image-analysis pipeline (top ${TOP_N}, scoring=${scoringValue || 'google'})${telemetry ? ' [+telemetry]' : labCwv ? ' [+lab-cwv]' : ''}${fresh ? ' [fresh]' : ''}...`);
+console.log(`Running full citation-image-analysis pipeline (top ${TOP_N}, scoring=${scoringValue || 'google'})${telemetry ? ' [+telemetry]' : labCwv ? ' [+lab-cwv]' : ''}${fresh ? '' : ' [resume]'}...`);
 console.log(`Artifacts -> ${RUN_DIR}`);
 
 await stage('Stage 01 — export cited URLs', `export-cited-urls ${TOP_N} ${INPUT}${platformArg}${byArg}`);

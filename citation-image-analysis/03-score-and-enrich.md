@@ -8,17 +8,17 @@ This stage is **fully deterministic** — it is the `score-and-enrich` command
 
 ```bash
 score-and-enrich output.json dashboard-data.json
-# defaults if you omit args: input=output.json, output=dashboard-data.json
-# add --scoring=google to use the Google-SEO rubric instead of the brief's
-score-and-enrich output.json dashboard-data.json --scoring=google
+# defaults if you omit args: input=output.json, output=dashboard-data.json, scoring=google
+# add --scoring=original to use the original Phase 1 rubric instead of Google's
+score-and-enrich output.json dashboard-data.json --scoring=original
 ```
 
 It filters out `skipped` rows, then adds to every remaining image row:
 
 1. **`metadata_completeness_score`** (0–100, weighted). The weights depend on
-   `--scoring` (default `brief`):
+   `--scoring` (default `google`):
 
-   **`--scoring=brief`** (Phase 1 brief, default):
+   **`--scoring=original`** (the original Phase 1 brief rubric; `brief` is also accepted):
 
    | Condition                               | Points |
    | --------------------------------------- | ------ |
@@ -28,7 +28,7 @@ It filters out `skipped` rows, then adds to every remaining image row:
    | `surrounding_paragraph` word count ≥ 50 | +15    |
    | `schema_image_match` is true            | +15    |
 
-   **`--scoring=google`** (aligned to [Google image SEO best practices](https://developers.google.com/search/docs/appearance/google-images),
+   **`--scoring=google`** (default, aligned to [Google image SEO best practices](https://developers.google.com/search/docs/appearance/google-images),
    which Google states also feed AI/Search visual surfaces):
 
    | Condition                                              | Points |

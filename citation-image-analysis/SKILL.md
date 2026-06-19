@@ -59,19 +59,20 @@ citation-pipeline 10                       # top 10, end to end
 citation-pipeline 25 --fresh               # start clean (don't resume/append)
 citation-pipeline 10 --platform="ChatGPT (Free)"   # force the platform label
 citation-pipeline 10 --by=prompts          # rank by "Prompts Cited In" instead of "Times Cited"
-citation-pipeline 10 --scoring=google      # score with the Google-SEO rubric
+citation-pipeline 10 --scoring=original    # score with the original Phase 1 rubric
 citation-pipeline 10 --lab-cwv             # also capture synthetic (lab) Core Web Vitals
 citation-pipeline 10 --dir=/workspace/run-2   # write artifacts elsewhere
 ```
 
 `--by` selects the ranking column for Stage 01: `citations` (default, **Times
 Cited**) or `prompts` (**Prompts Cited In**). `--scoring` selects the metadata
-rubric for Stage 03: `brief` (default, the Phase 1 weights) or `google` (aligned
-to [Google image SEO best practices](https://developers.google.com/search/docs/appearance/google-images)).
-To compare rubrics, run the pipeline into two `--dir` folders (e.g.
-`--scoring=brief --dir=/workspace/run-brief` and
-`--scoring=google --dir=/workspace/run-google`) and open both dashboards. `--dir`
-overrides where artifacts are written (default `/workspace/citation-run`).
+rubric for Stage 03: `google` (default, aligned to [Google image SEO best
+practices](https://developers.google.com/search/docs/appearance/google-images))
+or `original` (the Phase 1 brief's 5-signal rubric). To compare rubrics, run the
+pipeline into two `--dir` folders (e.g.
+`--scoring=google --dir=/workspace/run-google` and
+`--scoring=original --dir=/workspace/run-original`) and open both dashboards.
+`--dir` overrides where artifacts are written (default `/workspace/citation-run`).
 
 `--lab-cwv` (optional) captures per-page **Core Web Vitals** during the Stage 02
 visit and shows them in the dashboard (display-only): a synthetic single-load
@@ -117,8 +118,8 @@ mkdir -p /workspace/citation-run && cd /workspace/citation-run
    URLs with **scoops**, not background tabs (see that doc).
 3. **Stage 03 — score.** Deterministic, one command:
    ```bash
-   score-and-enrich output.json dashboard-data.json                  # brief rubric
-   score-and-enrich output.json dashboard-data.json --scoring=google # Google-SEO rubric
+   score-and-enrich output.json dashboard-data.json                    # Google-SEO rubric (default)
+   score-and-enrich output.json dashboard-data.json --scoring=original # original Phase 1 rubric
    ```
    Both rubrics score from the same `output.json`. See `03-score-and-enrich.md`
    for the full weight tables.

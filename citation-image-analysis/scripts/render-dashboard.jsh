@@ -47,8 +47,8 @@ const generatedAt = new Date().toISOString();
 const pageCount = new Set(data.map((r) => r.page_url)).size;
 const imageCount = data.filter((r) => r.image_url && !r.page_only).length;
 // Which scoring rubric Stage 03 used for this dataset (stamped on every row).
-const scoringMode = (data.find((r) => r && r.scoring_mode) || {}).scoring_mode || 'brief';
-const scoringLabel = scoringMode === 'google' ? 'Google SEO' : 'Brief';
+const scoringMode = (data.find((r) => r && r.scoring_mode) || {}).scoring_mode || 'google';
+const scoringLabel = scoringMode === 'google' ? 'Google SEO' : 'Original';
 
 // Defined as a real function so .toString() yields literal source — this lets
 // the client code use its own template literals without colliding with the
@@ -125,9 +125,9 @@ function clientMain() {
   // without re-implementing the scoring math. A small brief fallback keeps data
   // files produced before score_breakdown existed renderable.
   const wc = (s) => (s ? String(s).trim().split(/\s+/).filter(Boolean).length : 0);
-  const SCORING_MODE = (DATA.find((r) => r && r.scoring_mode) || {}).scoring_mode || 'brief';
+  const SCORING_MODE = (DATA.find((r) => r && r.scoring_mode) || {}).scoring_mode || 'google';
   const SCORE_MAX = 100;
-  const MODE_LABEL = SCORING_MODE === 'google' ? 'Google SEO' : 'Brief';
+  const MODE_LABEL = SCORING_MODE === 'google' ? 'Google SEO' : 'Original';
   // Legacy brief rubric — ONLY used when a row has no emitted score_breakdown.
   const FALLBACK_RULES = [
     { key: 'alt_present', label: 'Alt text present', group: 'Alt text', max: 30, met: (r) => r.alt_text_present === true, detail: (r) => `alt_text_present = ${r.alt_text_present === true}` },

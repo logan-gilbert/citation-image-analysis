@@ -11,8 +11,8 @@
 // with `exec`, stopping on the first failure.
 //
 // Usage:
-//   citation-pipeline [topN] [--dir=/path] [--platform="ChatGPT (Free)"] [--by=prompts] [--scoring=google] [--lab-cwv] [--fresh]
-//   defaults: topN = 10, --by = citations, --scoring = brief, --dir = /workspace/citation-run
+//   citation-pipeline [topN] [--dir=/path] [--platform="ChatGPT (Free)"] [--by=prompts] [--scoring=original] [--lab-cwv] [--fresh]
+//   defaults: topN = 10, --by = citations, --scoring = google, --dir = /workspace/citation-run
 //
 //   --dir=/path             where to write artifacts (created if missing)
 //   --fresh                 start clean — re-extract all pages instead of
@@ -20,9 +20,9 @@
 //   --platform="..."        force the Platform label (else auto-detected)
 //   --by=citations|prompts  rank the top N by "Times Cited" (default) or
 //                           "Prompts Cited In"
-//   --scoring=brief|google  metadata rubric: the Phase 1 brief (default) or one
-//                           aligned to Google's image SEO best practices. Run the
-//                           pipeline into two --dir folders to compare rubrics.
+//   --scoring=google|original  metadata rubric: Google image SEO best practices
+//                           (default) or the original Phase 1 brief rubric. Run
+//                           the pipeline into two --dir folders to compare them.
 //   --lab-cwv               also capture LAB Core Web Vitals (LCP/CLS + a TBT
 //                           proxy for INP) during the Stage 02 page visit and
 //                           show them in the dashboard (display-only). These are
@@ -82,7 +82,7 @@ async function stage(label, cmd) {
   }
 }
 
-console.log(`Running full citation-image-analysis pipeline (top ${TOP_N}, scoring=${scoringValue || 'brief'})${labCwv ? ' [+lab-cwv]' : ''}${fresh ? ' [fresh]' : ''}...`);
+console.log(`Running full citation-image-analysis pipeline (top ${TOP_N}, scoring=${scoringValue || 'google'})${labCwv ? ' [+lab-cwv]' : ''}${fresh ? ' [fresh]' : ''}...`);
 console.log(`Artifacts -> ${RUN_DIR}`);
 
 await stage('Stage 01 — export cited URLs', `export-cited-urls ${TOP_N} ${INPUT}${platformArg}${byArg}`);

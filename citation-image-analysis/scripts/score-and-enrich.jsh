@@ -8,13 +8,14 @@
 // rather than in prose the agent re-interprets each run.
 //
 // Usage:
-//   score-and-enrich [input.json] [output.json] [--scoring=brief|google]
-//   defaults: input = output.json, output = dashboard-data.json, scoring = brief
+//   score-and-enrich [input.json] [output.json] [--scoring=google|original]
+//   defaults: input = output.json, output = dashboard-data.json, scoring = google
 //
-//   --scoring=brief   (default) the Phase 1 brief's 5-signal metadata rubric.
-//   --scoring=google  a rubric aligned to Google's image SEO best practices
-//                     (https://developers.google.com/search/docs/appearance/google-images),
-//                     which Google states also feed AI/Search visual surfaces.
+//   --scoring=google    (default) a rubric aligned to Google's image SEO best
+//                       practices (https://developers.google.com/search/docs/appearance/google-images),
+//                       which Google states also feed AI/Search visual surfaces.
+//   --scoring=original  the Phase 1 brief's original 5-signal metadata rubric
+//                       ('brief' is still accepted as an alias for this).
 //
 // Either rubric scores from the SAME Stage 02 output.json — extract-page.js
 // always captures the signals both need — so you can compare by re-scoring one
@@ -23,14 +24,16 @@
 // the dashboard renders the exact rubric a run used.
 
 const rawArgs = process.argv.slice(2);
-let SCORING = 'brief';
+let SCORING = 'google';
 const args = [];
 for (const a of rawArgs) {
   if (/^--scoring=/.test(a)) SCORING = a.slice('--scoring='.length).replace(/^["']|["']$/g, '').toLowerCase();
   else args.push(a);
 }
-if (SCORING !== 'brief' && SCORING !== 'google') {
-  console.error(`score-and-enrich: unknown --scoring=${SCORING} (use 'brief' or 'google')`);
+// 'brief' is the legacy name for the original rubric — accept it as an alias.
+if (SCORING === 'brief') SCORING = 'original';
+if (SCORING !== 'original' && SCORING !== 'google') {
+  console.error(`score-and-enrich: unknown --scoring=${SCORING} (use 'google' or 'original')`);
   process.exit(1);
 }
 const INPUT_FILE = args[0] || 'output.json';

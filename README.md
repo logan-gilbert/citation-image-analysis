@@ -74,13 +74,14 @@ yourself with one command — it creates its own run directory
 
 ```bash
 citation-pipeline 20 --by=prompts --fresh   # top 20 by Prompts Cited In, clean run
-citation-pipeline 20 --scoring=google        # score with the Google-SEO rubric
-citation-pipeline 20 --scoring=google --lab-cwv   # + synthetic (lab) Core Web Vitals
+citation-pipeline 20 --scoring=original      # score with the original Phase 1 rubric
+citation-pipeline 20 --lab-cwv               # + synthetic (lab) Core Web Vitals
 ```
 
-`--scoring` picks the Stage 03 metadata rubric: `brief` (default) or `google`
-(aligned to [Google image SEO best practices](https://developers.google.com/search/docs/appearance/google-images)).
-Both score from the same crawl; compare by running into two `--dir` folders.
+`--scoring` picks the Stage 03 metadata rubric: `google` (default, aligned to
+[Google image SEO best practices](https://developers.google.com/search/docs/appearance/google-images))
+or `original` (the Phase 1 brief's 5-signal rubric). Both score from the same
+crawl; compare by running into two `--dir` folders.
 
 `--lab-cwv` (optional) captures per-page **Core Web Vitals** during the Stage 02
 visit and shows them in the dashboard — display-only: a synthetic single-load
@@ -102,14 +103,14 @@ open dashboard.html
 
 ```bash
 cd /workspace/skills/citation-image-analysis
-score-and-enrich fixtures/sample-output.json /tmp/dd.json
+score-and-enrich fixtures/sample-output.json /tmp/dd.json   # Google-SEO rubric (default)
 render-dashboard /tmp/dd.json /tmp/dashboard.html
 open /tmp/dashboard.html
 
-# or score the same fixture with the Google-SEO rubric and compare
-score-and-enrich fixtures/sample-output.json /tmp/dd-google.json --scoring=google
-render-dashboard /tmp/dd-google.json /tmp/dashboard-google.html
-open /tmp/dashboard-google.html
+# or score the same fixture with the original Phase 1 rubric and compare
+score-and-enrich fixtures/sample-output.json /tmp/dd-original.json --scoring=original
+render-dashboard /tmp/dd-original.json /tmp/dashboard-original.html
+open /tmp/dashboard-original.html
 ```
 
 Expect 5 scored image rows, three citation tiers, and the four-view dashboard.

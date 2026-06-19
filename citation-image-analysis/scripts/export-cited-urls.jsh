@@ -172,11 +172,21 @@ async function ensurePageSize(tabId) {
   let ps;
   try {
     ps = await runStep(tabId, 'pagesize');
-  } catch {
+  } catch (e) {
+    console.warn(`items-per-page: could not probe the control: ${e.message} — skipping.`);
     return { changed: false };
   }
-  if (!ps.found) return { changed: false }; // no pagination control on this view
+  if (!ps.found) {
+    console.warn('items-per-page: control not detected on this view — skipping.');
+    if (ps.pickers && ps.pickers.length) {
+      console.warn(`items-per-page: pickers seen: ${JSON.stringify(ps.pickers)}`);
+    } else {
+      console.warn('items-per-page: no popup/picker elements were seen at all.');
+    }
+    return { changed: false };
+  }
   const current = ps.current;
+  console.log(`Items per page is currently ${current ?? '?'} (target ≥ ${TOP_N}).`);
   if (current != null && current >= TOP_N) {
     console.log(`Items per page already ${current} (≥ ${TOP_N}) — leaving as is.`);
     return { changed: false };

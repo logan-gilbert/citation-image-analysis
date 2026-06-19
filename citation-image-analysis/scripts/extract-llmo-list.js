@@ -461,21 +461,71 @@
   // current size requires bumping it. Driven with the SAME trusted-click pattern
   // as the sort header: mark → snapshot → trusted click. Keyed off the stable
   // aria-label / role=option, never hashed classes.
-  function findPageButton() {
-    const cands = document.querySelectorAll('[aria-haspopup="listbox"],button,[role="button"]');
-    for (const el of cands) {
-      if (/^items?\s*per\s*page$/i.test((el.getAttribute('aria-label') || '').trim())) return el;
+  // The button's accessible NAME — aria-label wins, else the resolved text of the
+  // aria-labelledby targets, else its own text. (Different LLMO builds label this
+  // control either way.)
+  function accName(el) {
+    const al = (el.getAttribute('aria-label') || '').trim();
+    if (al) return al;
+    const lb = el.getAttribute('aria-labelledby');
+    if (lb) {
+      return lb
+        .split(/\s+/)
+        .map((id) => {
+          const e = document.getElementById(id);
+          return e ? (e.textContent || '').trim() : '';
+        })
+        .filter(Boolean)
+        .join(' ')
+        .trim();
     }
-    for (const el of document.querySelectorAll('[aria-label]')) {
-      if (/items?\s*per\s*page/i.test(el.getAttribute('aria-label') || '')) return el;
+    return (el.textContent || '').trim();
+  }
+  // The current page-size shown on the picker — its [data-slot=label] span, else
+  // any numeric run in its text.
+  function pickerLabelText(el) {
+    if (!el) return '';
+    const lab = el.querySelector('[data-slot="label"]') || el.querySelector('[data-rsp-slot="text"]');
+    return ((lab ? lab.textContent : el.textContent) || '').trim();
+  }
+  const PAGE_SIZES = new Set([10, 15, 20, 25, 30, 50, 100, 200]);
+  function findPageButton() {
+    const cands = [...document.querySelectorAll('[aria-haspopup="listbox"],button,[role="button"]')];
+    // 1) precise: accessible name (aria-label OR labelledby text) says "per page".
+    for (const el of cands) {
+      if (/items?\s*per\s*page/i.test(accName(el))) return el;
+    }
+    for (const el of cands) {
+      if (/per\s*page/i.test(accName(el) + ' ' + (el.getAttribute('title') || ''))) return el;
+    }
+    // 2) heuristic: a listbox-popup whose CURRENT label is just a page-size number
+    //    (e.g. "10"/"20"/"50"). The Platform combobox's value is text, not a bare
+    //    number, so this won't collide with it.
+    for (const el of cands) {
+      if (el.getAttribute('aria-haspopup') !== 'listbox') continue;
+      const m = pickerLabelText(el).match(/^\s*(\d{1,3})\s*$/);
+      if (m && PAGE_SIZES.has(parseInt(m[1], 10))) return el;
     }
     return null;
   }
   function pageButtonValue(btn) {
     if (!btn) return null;
-    const lab = btn.querySelector('[data-slot="label"]') || btn.querySelector('[data-rsp-slot="text"]');
-    const m = String((lab ? lab.textContent : btn.textContent) || '').match(/\d+/);
+    const m = pickerLabelText(btn).match(/\d+/) || String(btn.textContent || '').match(/\d+/);
     return m ? parseInt(m[0], 10) : null;
+  }
+  // For diagnostics when detection fails: every popup/picker on the page.
+  function pagePickerDump() {
+    const out = [];
+    for (const el of document.querySelectorAll('[aria-haspopup],[role="button"],button')) {
+      const hp = el.getAttribute('aria-haspopup');
+      if (!hp && el.tagName !== 'BUTTON' && el.getAttribute('role') !== 'button') continue;
+      const name = accName(el).slice(0, 50);
+      const label = pickerLabelText(el).slice(0, 20);
+      if (!hp && !/page|\d/.test(name + label)) continue; // keep the dump small
+      out.push({ tag: el.tagName.toLowerCase(), haspopup: hp || null, name, label });
+      if (out.length >= 12) break;
+    }
+    return out;
   }
   // Numeric option values currently in the open listbox (role=option).
   function openPageOptions() {
@@ -490,7 +540,14 @@
 
   if (cmd === 'pagesize') {
     const btn = findPageButton();
-    return { ok: true, mode: 'pagesize', found: !!btn, current: pageButtonValue(btn) };
+    return {
+      ok: true,
+      mode: 'pagesize',
+      found: !!btn,
+      current: pageButtonValue(btn),
+      html: btn ? (btn.outerHTML || '').slice(0, 220) : null,
+      pickers: btn ? undefined : pagePickerDump(), // only when we couldn't find it
+    };
   }
   // Stamp our token as the element's accessible NAME. The page button carries
   // BOTH aria-label and aria-labelledby, and aria-labelledby WINS per the a11y

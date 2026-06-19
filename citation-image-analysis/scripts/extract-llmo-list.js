@@ -492,12 +492,40 @@
     const btn = findPageButton();
     return { ok: true, mode: 'pagesize', found: !!btn, current: pageButtonValue(btn) };
   }
+  // Stamp our token as the element's accessible NAME. The page button carries
+  // BOTH aria-label and aria-labelledby, and aria-labelledby WINS per the a11y
+  // name spec — so we must temporarily remove aria-labelledby (stashing it for
+  // restore) for our aria-label to take effect in SLICC's snapshot.
+  function markName(el, token) {
+    const lb = el.getAttribute('aria-labelledby');
+    if (lb != null) {
+      try {
+        el.setAttribute('data-llmo-prev-labelledby', lb);
+        el.removeAttribute('aria-labelledby');
+      } catch {}
+    }
+    try {
+      el.setAttribute('aria-label', token);
+    } catch {}
+  }
+  function unmarkName(el, token) {
+    if (!el) return;
+    try {
+      if (el.getAttribute('aria-label') === token) el.removeAttribute('aria-label');
+    } catch {}
+    const prev = el.getAttribute('data-llmo-prev-labelledby');
+    if (prev != null) {
+      try {
+        el.setAttribute('aria-labelledby', prev);
+        el.removeAttribute('data-llmo-prev-labelledby');
+      } catch {}
+    }
+  }
+
   if (cmd === 'markpage') {
     const btn = findPageButton();
     if (!btn) return { ok: false, mode: 'markpage', error: 'page-button-not-found' };
-    try {
-      btn.setAttribute('aria-label', PAGE_TOKEN);
-    } catch {}
+    markName(btn, PAGE_TOKEN);
     let neutralized = 0;
     try {
       for (const el of btn.querySelectorAll('*')) {
@@ -513,13 +541,12 @@
     return { ok: true, mode: 'markpage', token: PAGE_TOKEN, current: pageButtonValue(btn), neutralized, rect };
   }
   if (cmd === 'unmarkpage') {
-    const btn = document.querySelector(`[aria-label="${PAGE_TOKEN}"]`) || findPageButton();
+    const btn =
+      document.querySelector(`[aria-label="${PAGE_TOKEN}"]`) ||
+      document.querySelector('[data-llmo-prev-labelledby]') ||
+      findPageButton();
     if (btn) {
-      if (btn.getAttribute('aria-label') === PAGE_TOKEN) {
-        try {
-          btn.removeAttribute('aria-label');
-        } catch {}
-      }
+      unmarkName(btn, PAGE_TOKEN);
       try {
         for (const el of btn.querySelectorAll('*')) el.style.pointerEvents = '';
       } catch {}
@@ -536,9 +563,7 @@
     const hit = opts.find((o) => o.value === target);
     if (!hit)
       return { ok: false, mode: 'markoption', error: 'option-not-found', target, options: opts.map((o) => o.value) };
-    try {
-      hit.el.setAttribute('aria-label', PAGE_TOKEN);
-    } catch {}
+    markName(hit.el, PAGE_TOKEN);
     let neutralized = 0;
     try {
       for (const el of hit.el.querySelectorAll('*')) {
